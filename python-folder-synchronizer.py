@@ -15,7 +15,7 @@ def copySourceEntry(sourceEntryPath):
   try:
     destinationPath = createDestinationPath(sourceEntryPath)
     if os.path.isfile(sourceEntryPath):
-      shutil.copy(sourceEntryPath, destinationPath)
+      shutil.copy2(sourceEntryPath, destinationPath)
     elif os.path.isdir(sourceEntryPath):
       shutil.copytree(sourceEntryPath, destinationPath)
     logging.info(f"Copied: {sourceEntryPath} to {destinationPath}")
@@ -42,16 +42,25 @@ def createDestinationPath(sourcePath):
 def createSourcePath(destinationPath):
    return destinationPath.replace(REPLICA_FOLDER_PATH, SOURCE_FOLDER_PATH)
 
+# This function verifies whether the content of a file remains consistent and is utilized to replace files if the content is not identical
+def getFileHash(filePath):
+   hasher = hashlib.md5()
+   with open(filePath, "rb") as file:
+      buf = file.read()
+      hasher.update(buf)
+   return hasher.hexdigest()
+
 
 
 def compareFolderContent():
-  # Copying files and folderss to replica directory, if new file or folder will appear in source directory
+  # Copying files and folders to replica directory, if new file or folder will appear in source directory
   for root, dirs, files in os.walk(SOURCE_FOLDER_PATH):
      allEntries = dirs + files
      for entryName in allEntries:
         entryPath = os.path.join(root, entryName)
         destinationEntryPath = createDestinationPath(entryPath)
-        if not os.path.exists(destinationEntryPath):
+        isSameFileContent = getFileHash(entryPath) != getFileHash(destinationEntryPath)
+        if not os.path.exists(destinationEntryPath) or isSameFileContent:
           copySourceEntry(entryPath)
   # Deleting files and folders, if there not anymore in source folder
   for root, dirs, files in os.walk(REPLICA_FOLDER_PATH):
