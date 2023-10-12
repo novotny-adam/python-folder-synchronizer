@@ -1,19 +1,42 @@
 import os 
 import shutil
 import logging
-import hashlib # Library for comparison of files by md5 hash
+import hashlib # Library for comparison of file content by md5 hash
+import sys
+import time
 
 # Logging to file
-logging.basicConfig(filename='example.log', encoding='utf-8', level=logging.INFO, 
+logging.basicConfig(filename='synchronizer-actions.log', encoding='utf-8', level=logging.INFO, 
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
-SYNC_INTERVAL = 300 # Time in seconds
-SOURCE_FOLDER_PATH = "source/"
-REPLICA_FOLDER_PATH = "replica/"
+passedArguments = sys.argv
 
-def copySourceEntry(sourceEntryPath):
+def verifyArguments(passedArguments):
+   EXPECTED_NUMBER_OF_ARGUMENTS = 3
+   cleansedArguments = passedArguments[1:]
+   if len(cleansedArguments) == EXPECTED_NUMBER_OF_ARGUMENTS:
+      interval, sourceFolderPath, replicaFolderPath = cleansedArguments
+      try:
+         interval = int(interval)
+         validatePath(sourceFolderPath)
+         validatePath(replicaFolderPath)
+         return interval, sourceFolderPath, replicaFolderPath
+      except ValueError as ve:
+        print(f"Error: {ve}")
+      except Exception as e:
+        print(f"Unexpected error: {e}")   
+   else:
+      print("Invalid number of values passed! Check number of paramaters and run application again.")
+
+def validatePath(path):
+       if not os.path.exists(path):
+        raise ValueError(f"Path: {path} does not exist.")
+       if not os.path.isdir(path):
+        raise ValueError(f"Path: {path} is not a directory.")
+       
+def copySourceEntry(sourceEntryPath, sourceFolderPath, replicaFolderPath):
   try:
-    destinationPath = createDestinationPath(sourceEntryPath)
+    destinationPath = createDestinationPath(sourceEntryPath, sourceFolderPath, replicaFolderPath)
     if os.path.isfile(sourceEntryPath):
       shutil.copy2(sourceEntryPath, destinationPath)
     elif os.path.isdir(sourceEntryPath):
@@ -36,11 +59,11 @@ def deleteDestinationEntry(destinationEntryPath):
         logging.error(f"Error deleting {destinationEntryPath}: {str(e)}")
         print(f"Error: {str(e)}")
 
-def createDestinationPath(sourcePath):
-  return sourcePath.replace(SOURCE_FOLDER_PATH, REPLICA_FOLDER_PATH)
+def createDestinationPath(sourcePath, sourceFolderPath, replicaFolderPath):
+  return sourcePath.replace(sourceFolderPath, replicaFolderPath)
 
-def createSourcePath(destinationPath):
-   return destinationPath.replace(REPLICA_FOLDER_PATH, SOURCE_FOLDER_PATH)
+def createSourcePath(destinationPath, sourceFolderPath, replicaFolderPath):
+   return destinationPath.replace(replicaFolderPath, sourceFolderPath)
 
 # This function verifies whether the content of a file remains consistent and is utilized to replace files if the content is not identical
 def getFileHash(filePath):
@@ -50,28 +73,42 @@ def getFileHash(filePath):
       hasher.update(buf)
    return hasher.hexdigest()
 
+def compareFileContent(entryPath, destinationEntryPath):
+   return getFileHash(entryPath) != getFileHash(destinationEntryPath)
 
-
-def compareFolderContent():
+def compareFolderContent(sourceFolderPath, replicaFolderPath):
   # Copying files and folders to replica directory, if new file or folder will appear in source directory
-  for root, dirs, files in os.walk(SOURCE_FOLDER_PATH):
+  for root, dirs, files in os.walk(sourceFolderPath):
      allEntries = dirs + files
      for entryName in allEntries:
         entryPath = os.path.join(root, entryName)
-        destinationEntryPath = createDestinationPath(entryPath)
-        isSameFileContent = getFileHash(entryPath) != getFileHash(destinationEntryPath)
-        if not os.path.exists(destinationEntryPath) or isSameFileContent:
-          copySourceEntry(entryPath)
+        destinationEntryPath = createDestinationPath(entryPath, sourceFolderPath, replicaFolderPath)
+        # Comparing file content by hash must be second, because the file needs to exists first.
+        if not os.path.exists(destinationEntryPath) or (os.path.isfile(entryPath) and compareFileContent(entryPath, destinationEntryPath)):
+          copySourceEntry(entryPath, sourceFolderPath, replicaFolderPath)
   # Deleting files and folders, if there not anymore in source folder
-  for root, dirs, files in os.walk(REPLICA_FOLDER_PATH):
+  for root, dirs, files in os.walk(replicaFolderPath):
      allEntries = dirs + files
      for entryName in allEntries:
         destinationEntryPath = os.path.join(root, entryName)
-        sourceEntryPath = createSourcePath(destinationEntryPath)
+        sourceEntryPath = createSourcePath(destinationEntryPath, sourceFolderPath ,replicaFolderPath)
         if not os.path.exists(sourceEntryPath):
            deleteDestinationEntry(destinationEntryPath)
 
+if __name__ == "__main__":
+    try:
+        SYNC_INTERVAL, SOURCE_FOLDER_PATH, REPLICA_FOLDER_PATH = verifyArguments(sys.argv)
+        print(f"The synchronizer is running in interval {SYNC_INTERVAL} with source folder path: '{SOURCE_FOLDER_PATH}' and replica folder path: '{REPLICA_FOLDER_PATH}'.")   
+        while True:
+            print("Running synchronization process!")
+            compareFolderContent(SOURCE_FOLDER_PATH, REPLICA_FOLDER_PATH)
+            time.sleep(SYNC_INTERVAL)
+    except ValueError as ve:
+        print(f"Error: {ve}")
+    except KeyboardInterrupt:
+        print("\nSynchronizer terminated by user.")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
 
-compareFolderContent()
 
 
